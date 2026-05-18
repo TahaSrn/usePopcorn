@@ -1,19 +1,26 @@
 import { useEffect, useState, useRef } from "react";
+import { useMovies } from "./useMovies.js";
+import { useLocalStorageState } from "./useLocalStorageState.js";
 import StarRating from "./components/StarRating.js";
+import { useKey } from "./useKey.js";
 
 const average = (arr) =>
   arr.reduce((acc, cur, i, arr) => acc + cur / arr.length, 0);
 
 export default function App() {
-  const [movies, setMovies] = useState([]);
-  const [watched, setWatched] = useState(function () {
-    const storedValue = localStorage.getItem("watched");
-    return JSON.parse(storedValue);
-  });
+  const [watched, setWatched] = useLocalStorageState([], "watched");
   const [query, setQuery] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState("");
   const [selectedId, setSelectedId] = useState("");
+
+  const { movies, isLoading, error } = useMovies(query, handleCloseMovie);
+
+  useEffect(
+    function () {
+      handleCloseMovie();
+    },
+    [query],
+  );
+
   function handleSelectId(id) {
     setSelectedId((selectedId) => (id === selectedId ? null : id));
   }
@@ -29,58 +36,6 @@ export default function App() {
   function handleDeleteWatched(id) {
     setWatched((watched) => watched.filter((movie) => movie.imdbID !== id));
   }
-
-  useEffect(
-    function () {
-      localStorage.setItem("watched", JSON.stringify(watched));
-    },
-    [watched],
-  );
-
-  useEffect(
-    function () {
-      if (query.length <= 2) {
-        setMovies([]);
-        setError("");
-        return;
-      }
-      const controller = new AbortController();
-      async function fetchMovies() {
-        try {
-          setIsLoading(true);
-          setError("");
-          const res = await fetch(
-            `http://www.omdbapi.com/?apikey=f509cd95&s=${query}`,
-            { signal: controller.signal },
-          );
-          if (!res.ok) {
-            throw new Error("Something went wrong with fetching movies");
-          }
-
-          const data = await res.json();
-          setMovies(data.Search);
-
-          if (data.Response === "False") {
-            throw new Error(data.Error);
-          }
-          setError("");
-        } catch (err) {
-          if (err.name !== "AbortError") {
-            setError(err.message);
-          }
-        } finally {
-          setIsLoading(false);
-        }
-      }
-
-      handleCloseMovie();
-      fetchMovies();
-      return function () {
-        controller.abort();
-      };
-    },
-    [query],
-  );
 
   return (
     <>
@@ -141,21 +96,11 @@ function Logo() {
 function Search({ query, setQuery }) {
   const inputEl = useRef(null);
 
-  useEffect(
-    function () {
-      function callback(e) {
-        if (document.activeElement === inputEl.current) return;
-
-        if (e.code === "Enter") {
-          inputEl.current.focus();
-          setQuery("");
-        }
-      }
-
-      document.addEventListener("keydown", callback);
-    },
-    [setQuery],
-  );
+  useKey("Enter", function () {
+    if (document.activeElement === inputEl.current) return;
+    inputEl.current.focus();
+    setQuery("");
+  });
 
   return (
     <input
@@ -272,22 +217,7 @@ function MovieDetails({ id, onCloseMovie, onAddWatched, selectedId, watched }) {
     onCloseMovie();
   }
 
-  console.log(movie);
-
-  useEffect(
-    function () {
-      function callback(e) {
-        if (e.code === "Escape") {
-          onCloseMovie();
-        }
-      }
-      document.addEventListener("keydown", callback);
-      return function () {
-        document.removeEventListener("keydown", callback);
-      };
-    },
-    [onCloseMovie],
-  );
+  useKey("Escape", onCloseMovie);
 
   useEffect(
     function () {
@@ -313,6 +243,10 @@ function MovieDetails({ id, onCloseMovie, onAddWatched, selectedId, watched }) {
     function () {
       if (!title) return;
       document.title = `movie | ${title}`;
+
+      return function () {
+        document.title = "usePopcorn";
+      };
     },
     [title],
   );
@@ -376,8 +310,10 @@ function MovieSummery({ watched }) {
   const avgImdbRating = average(
     watched.map((movie) => movie.imdbRating),
   ).toFixed(2);
-  const avgUserRating = average(watched.map((movie) => movie.userRating));
-  const avgRuntime = average(watched.map((movie) => movie.runtime));
+  const avgUserRating = average(
+    watched.map((movie) => movie.userRating),
+  ).toFixed(2);
+  const avgRuntime = average(watched.map((movie) => movie.runtime)).toFixed(2);
 
   return (
     <div className="summary">
